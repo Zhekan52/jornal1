@@ -1008,7 +1008,12 @@ const Statistics: React.FC<StatisticsProps> = ({ studentId, grades, lessons, stu
       // Оценки всех учеников по предмету
       const subjectAllGrades = allGrades.filter(g => g.subject === subject);
 
-      // Вычисляем средний балл для каждого ученика по предмету
+      // Средний балл класса по предмету - считаем как среднее всех оценок (как в AdminView)
+      const classAvg = subjectAllGrades.length > 0
+        ? subjectAllGrades.reduce((sum, g) => sum + g.value, 0) / subjectAllGrades.length
+        : 0;
+
+      // Вычисляем средний балл для каждого ученика по предмету (для определения позиции)
       const studentAvgs: { studentId: string; avg: number; count: number }[] = [];
       const studentGradesMap: Record<string, number[]> = {};
 
@@ -1030,11 +1035,6 @@ const Statistics: React.FC<StatisticsProps> = ({ studentId, grades, lessons, stu
 
       // Находим позицию текущего ученика
       const myPosition = studentAvgs.findIndex(s => s.studentId === studentId) + 1;
-
-      // Средний балл класса по предмету
-      const classAvg = studentAvgs.length > 0
-        ? studentAvgs.reduce((sum, s) => sum + s.avg, 0) / studentAvgs.length
-        : 0;
 
       stats.push({
         subject,
