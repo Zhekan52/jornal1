@@ -1902,9 +1902,15 @@ const TestResultsSection: React.FC<{
   grades: any[]; setGrades: any; journalColumns: any[]; lessonNumber: number;
   testAssignments: any[]; setTestAssignments: any;
 }> = ({ test, date, subject, students, testAttempts, testRetakes, setTestRetakes, setTestAttempts, grades, setGrades, journalColumns, lessonNumber, testAssignments, setTestAssignments }) => {
-  const [showResults, setShowResults] = useState(false);
-  const [viewingAttempt, setViewingAttempt] = useState<any>(null);
-  const [manualGrading, setManualGrading] = useState<Record<string, boolean>>({});
+  const [showVariantModal, setShowVariantModal] = useState<any>(null);
+  const [showManualGradeModal, setShowManualGradeModal] = useState<any>(null);
+
+  const testCol = journalColumns.find((c: any) => c.date === date && c.subject === subject && c.type === 'test' && (c.lessonNumber === lessonNumber || (!c.lessonNumber && lessonNumber === 0)));
+
+  const sortedStudents = useMemo(() =>
+    [...students].sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)),
+    [students]
+  );
 
   // Защита от undefined, если данные не пришли из контекста
   const safeAttempts = testAttempts || [];
@@ -1999,46 +2005,342 @@ const TestResultsSection: React.FC<{
     });
   };
 
-  return (
-    <div className="glass rounded-2xl p-4 shadow-soft">
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="font-semibold text-gray-900">Назначения тестов</h4>
-      </div>
-      <div className="space-y-2">
-        {sortedStudents.map((student: any) => {
-          const assignment = testAssignments?.find((a: any) =>
-            a.studentId === student.id &&
-            a.testId === test.id &&
-            a.date === date &&
-            a.subject === subject &&
-            a.lessonNumber === lessonNumber
-          );
-          const isAssigned = assignment?.assigned !== false;
-          const isExempt = assignment?.assigned === false;
+  // Получить попытку ученика
+  const getAttempt = (studentId: string) => {
+    return safeAttempts.find((a: any) =>
+      a.studentId === studentId &&
+      a.testId === test.id &&
+      a.date === date
+    );
+  };
 
-          return (
-            <div key={student.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50">
-              <span className="text-sm text-gray-700">{student.lastName} {student.firstName}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => updateAssignment(student.id, { assigned: true })}
-                  disabled={isAssigned}
-                  className={`px-2 py-1 text-xs rounded ${isAssigned ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-green-50'}`}
-                >
-                  Назначен
-                </button>
-                <button
-                  onClick={() => updateAssignment(student.id, { assigned: false })}
-                  disabled={isExempt}
-                  className={`px-2 py-1 text-xs rounded ${isExempt ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600 hover:bg-red-50'}`}
-                >
-                  Освобождён
-                </button>
-              </div>
-            </div>
-          );
-        })}
+  // Проверить, есть ли пересдача
+  const hasRetake = (studentId: string) => {
+    return safeRetakes.some((r: any) =>
+      r.studentId === studentId &&
+      r.testId === test.id
+    );
+  };
+
+  // Назначить вариант ученику
+  const assignVariant = (studentId: string, variantId: string | null) => {
+    const existing = getAssignment(studentId);
+    if (existing) {
+      setTestAssignments((prev: any[]) => prev.map((a: any) =>
+        a.id === existing.id ? { ...a, variantId, assigned: true } : a
+      ));
+    } else {
+      setTestAssignments((prev: any[]) => [...prev, {
+        id: `ta${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+        studentId,
+        testId: test.id,
+        date,
+        subject,
+        lessonNumber,
+        variantId: variantId || undefined,
+        assigned: true
+      }]);
+    }
+  };
+
+  // Выставить оценку вручную
+  const setManualGrade = (studentId: string, value: number | null) => {
+    if (!testCol) return;
+    if (value === null) {
+      setGrades((prev: any[]) => prev.filter((g: any) =>
+        !(g.studentId === studentId && g.date === date && g.subject === subject && g.columnId === testCol.id)
+      ));
+    } else {
+      const existing = grades.find((g: any) =>
+        g.studentId === studentId && g.date === date && g.subject === subject && g.columnId === testCol.id
+      );
+      if (existing) {
+        setGrades((prev: any[]) => prev.map((g: any) =>
+          g.id === existing.id ? { ...g, value } : g
+        ));
+      } else {
+        setGrades((prev: any[]) => [...prev, {
+          id: `g${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+          studentId,
+          subject,
+          value,
+          date,
+          lessonNumber,
+          columnId: testCol.id
+        }]);
+      }
+    }
+  };
+
+  // Автоматически выставить оценки из попыток
+  const autoGrade = () => {
+    if (!testCol) return;
+    sortedStudents.forEach(student => {
+      const attempt = getAttempt(student.id);
+      const assignment = getAssignment(student.id);
+      const isExempt = assignment?.assigned === false;
+      
+      if (attempt && !isExempt) {
+        setManualGrade(student.id, attempt.grade);
+      }
+    });
+  };
+
+  // Разрешить пересдачу
+  const allowRetake = (studentId: string) => {
+    const existing = safeRetakes.find((r: any) => r.studentId === studentId && r.testId === test.id);
+    if (!existing) {
+      setTestRetakes((prev: any[]) => [...prev, {
+        id: `tr${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+        studentId,
+        testId: test.id,
+        date
+      }]);
+    }
+  };
+
+  // Удалить пересдачу
+  const removeRetake = (studentId: string) => {
+    setTestRetakes((prev: any[]) => prev.filter((r: any) =>
+      !(r.studentId === studentId && r.testId === test.id)
+    ));
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 shadow-soft space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">Тест: {test.title}</h3>
+          <p className="text-sm text-gray-500">
+            {test.useVariants && test.variants ? `${test.variants.length} вариантов` : `${test.questions.length} вопросов`}
+            {test.timeLimit > 0 && ` - ${test.timeLimit} мин`}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={autoGrade} className="px-4 py-2 bg-primary-100 text-primary-700 rounded-xl text-sm font-medium hover:bg-primary-200 transition-colors">
+            Автооценки
+          </button>
+        </div>
       </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/80 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
+              <th className="px-4 py-3 text-left font-semibold w-48">Ученик</th>
+              <th className="px-3 py-3 text-center font-semibold w-28">Статус</th>
+              <th className="px-3 py-3 text-center font-semibold w-32">Вариант</th>
+              <th className="px-3 py-3 text-center font-semibold w-28">Попытка</th>
+              <th className="px-3 py-3 text-center font-semibold w-24">Оценка</th>
+              <th className="px-3 py-3 text-center font-semibold">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedStudents.map((student) => {
+              const assignment = getAssignment(student.id);
+              const attempt = getAttempt(student.id);
+              const retake = hasRetake(student.id);
+              const isExempt = assignment?.assigned === false;
+              const testGrade = testCol ? grades.find((g: any) =>
+                g.studentId === student.id && g.date === date && g.subject === subject && g.columnId === testCol.id
+              ) : null;
+
+              return (
+                <tr key={student.id} className="border-b border-gray-100 hover:bg-white/40 transition-colors">
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {student.lastName} {student.firstName}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {isExempt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-medium">
+                        <X className="w-3 h-3" /> Освобождён
+                      </span>
+                    ) : attempt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-medium">
+                        <CheckCircle className="w-3 h-3" /> Сдал
+                      </span>
+                    ) : retake ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-medium">
+                        <RefreshCw className="w-3 h-3" /> Пересдача
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium">
+                        Ожидает
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {test.useVariants && test.variants ? (
+                      <button
+                        onClick={() => setShowVariantModal(student)}
+                        className="px-2 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors"
+                      >
+                        {assignment?.variantId && test.variants.find((v: any) => v.id === assignment.variantId)
+                          ? test.variants.find((v: any) => v.id === assignment.variantId)?.name
+                          : 'Выбрать'}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400 text-xs">-</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {attempt ? (
+                      <div className="flex flex-col items-center">
+                        <span className={`text-lg font-bold ${
+                          attempt.percent >= 90 ? 'text-green-600' :
+                          attempt.percent >= 70 ? 'text-blue-600' :
+                          attempt.percent >= 50 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>{attempt.percent}%</span>
+                        <span className="text-xs text-gray-500">{attempt.correct}/{attempt.total}</span>
+                      </div>
+                    ) : retake ? (
+                      <span className="text-yellow-600 text-xs font-medium">Пересдача</span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    {testGrade ? (
+                      <button
+                        onClick={() => setShowManualGradeModal(student)}
+                        className={`w-10 h-10 rounded-xl text-sm font-bold ${
+                          testGrade.value === 5 ? 'bg-green-100 text-green-700' :
+                          testGrade.value === 4 ? 'bg-blue-100 text-blue-700' :
+                          testGrade.value === 3 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}
+                      >
+                        {testGrade.value}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowManualGradeModal(student)}
+                        className="w-10 h-10 rounded-xl text-gray-300 border-2 border-dashed border-gray-300 hover:border-gray-400 hover:bg-gray-50 transition-colors text-xs"
+                      >
+                        +
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => setAssignment(student.id, { assigned: isExempt ? true : false })}
+                        className={`p-2 rounded-lg transition-colors ${
+                          isExempt
+                            ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                        title={isExempt ? 'Отменить освобождение' : 'Освободить от теста'}
+                      >
+                        {isExempt ? <CheckCircle className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                      </button>
+                      {attempt && !retake && (
+                        <button
+                          onClick={() => allowRetake(student.id)}
+                          className="p-2 rounded-lg bg-yellow-100 text-yellow-600 hover:bg-yellow-200 transition-colors"
+                          title="Разрешить пересдачу"
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                      )}
+                      {retake && (
+                        <button
+                          onClick={() => removeRetake(student.id)}
+                          className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                          title="Удалить пересдачу"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Modal for selecting variant */}
+      {showVariantModal && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[200] p-4" onClick={() => setShowVariantModal(null)}>
+          <div className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/50 shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">
+                Выбор варианта для {showVariantModal.lastName} {showVariantModal.firstName}
+              </h3>
+              <button onClick={() => setShowVariantModal(null)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={() => { assignVariant(showVariantModal.id, null); setShowVariantModal(null); }}
+                className={`w-full p-3 rounded-xl text-left transition-colors ${
+                  !getAssignment(showVariantModal.id)?.variantId
+                    ? 'bg-primary-50 border-2 border-primary-500 text-primary-700'
+                    : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                }`}
+              >
+                <div className="font-medium">Без варианта (основной)</div>
+              </button>
+              {test.variants?.map((variant: any) => (
+                <button
+                  key={variant.id}
+                  onClick={() => { assignVariant(showVariantModal.id, variant.id); setShowVariantModal(null); }}
+                  className={`w-full p-3 rounded-xl text-left transition-colors ${
+                    getAssignment(showVariantModal.id)?.variantId === variant.id
+                      ? 'bg-primary-50 border-2 border-primary-500 text-primary-700'
+                      : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                  }`}
+                >
+                  <div className="font-medium">{variant.name}</div>
+                  <div className="text-xs text-gray-500">{variant.questions?.length || 0} вопросов</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for manual grade */}
+      {showManualGradeModal && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[200] p-4" onClick={() => setShowManualGradeModal(null)}>
+          <div className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/50 shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">
+                Оценка для {showManualGradeModal.lastName} {showManualGradeModal.firstName}
+              </h3>
+              <button onClick={() => setShowManualGradeModal(null)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="flex gap-2 justify-center mb-4">
+              {[5, 4, 3, 2].map(v => (
+                <button
+                  key={v}
+                  onClick={() => { setManualGrade(showManualGradeModal.id, v); setShowManualGradeModal(null); }}
+                  className={`w-14 h-14 rounded-xl text-lg font-bold transition-all ${
+                    v === 5 ? 'bg-green-100 text-green-700 hover:bg-green-200' :
+                    v === 4 ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' :
+                    v === 3 ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200' :
+                    'bg-red-100 text-red-700 hover:bg-red-200'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => { setManualGrade(showManualGradeModal.id, null); setShowManualGradeModal(null); }}
+              className="w-full py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm"
+            >
+              Удалить оценку
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
