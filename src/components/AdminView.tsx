@@ -1674,4 +1674,1097 @@ const TestResultsSection: React.FC<{
       if (!existing && updates.variantId) {
         console.log('Creating assignment with variant');
         const newAssignment = {
-          id: `ta_${Date.
+          id: `ta_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          studentId,
+          testId: test.id,
+          date,
+          subject,
+          lessonNumber,
+          assigned: true,
+          variantId: updates.variantId,
+        };
+        return [...prev, newAssignment];
+      }
+
+      // Если назначаем без варианта - просто удаляем запись (возвращаемся к дефолту)
+      if (!existing && updates.assigned !== false && !updates.variantId) {
+        console.log('Removing record (back to default assigned)');
+        return prev;
+      }
+
+      return prev;
+    });
+  };
+
+  // Найти колонку теста для этого урока
+  const testColumn = journalColumns?.find((c: any) => c.date === date && c.subject === subject && c.type === 'test' && (c.lessonNumber === lessonNumber || (!c.lessonNumber && lessonNumber === 0)));
+
+  // Пересчитать результаты на основе вручную отмеченных ответов
+  const recalculateResults = () => {
+    if (!viewingAttempt || !setTestAttempts) return;
+
+    const questions = getAttemptQuestions(viewingAttempt.variantId);
+    const updatedAnswers = (viewingAttempt.answers || []).map((ans: any) => ({
+      ...ans,
+      correct: manualGrading[ans.questionId] ?? ans.correct,
+    }));
+
+    const correctCount = updatedAnswers.filter((a: any) => a.correct).length;
+    const totalCount = questions.length;
+    const percent = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+
+    // Найти оценку по шкале
+    let grade = 0;
+    for (const gs of test.gradingScale) {
+      if (percent >= gs.minPercent) {
+        grade = gs.grade;
+        break;
+      }
+    }
+
+    const updatedAttempt = {
+      ...viewingAttempt,
+      answers: updatedAnswers,
+      correct: correctCount,
+      total: totalCount,
+      percent,
+      grade,
+      manuallyGraded: true,
+    };
+
+    // Сохранить изменения в попытках теста
+    setTestAttempts((prev: any[]) => {
+      const idx = prev.findIndex((a: any) => a.id === viewingAttempt.id);
+      if (idx >= 0) {
+        const newAttempts = [...prev];
+        newAttempts[idx] = updatedAttempt;
+        return newAttempts;
+      }
+      return prev;
+    });
+
+    // Обновить оценку в колонке теста
+    if (testColumn && setGrades && viewingAttempt.studentId) {
+      setGrades((prev: any[]) => {
+        const existing = prev.find((g: any) =>
+          g.studentId === viewingAttempt.studentId &&
+          g.date === date &&
+          g.subject === subject &&
+          g.columnId === testColumn.id &&
+          g.lessonNumber === lessonNumber
+        );
+        if (existing) {
+          return prev.map((g: any) => g.id === existing.id ? { ...g, value: grade } : g);
+        }
+        return [
+          ...prev,
+          {
+            id: `g${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+            studentId: viewingAttempt.studentId,
+            subject: subject,
+            value: grade,
+            date: date,
+            lessonNumber: lessonNumber,
+            columnId: testColumn.id
+          }
+        ];
+      });
+    }
+
+    setViewingAttempt(updatedAttempt);
+  };
+
+  // Сбросить на автоматическую проверку
+  const resetToAutoGrading = () => {
+    if (!viewingAttempt || !setTestAttempts) return;
+
+    const questions = getAttemptQuestions(viewingAttempt.variantId);
+
+    // Пересчитываем правильность для каждого вопроса
+    const autoGradedAnswers = questions.map((q: any) => {
+      const existingAns = viewingAttempt.answers?.find((a: any) => a.questionId === q.id);
+      const userAnswer = existingAns?.answer;
+
+      let correct = false;
+      if (q.type === 'text') {
+        // Для текстовых ответов - точное совпадение (игнорируя регистр)
+        correct = q.correctAnswer && userAnswer &&
+          q.correctAnswer.toLowerCase().trim() === (userAnswer as string).toLowerCase().trim();
+      } else if (q.type === 'single') {
+        const selectedOpt = q.options.find((o: any) => o.id === userAnswer);
+        correct = selectedOpt?.correct ?? false;
+      } else if (q.type === 'multiple') {
+        const selectedOpts = q.options.filter((o: any) => (userAnswer || []).includes(o.id));
+        const correctOpts = q.options.filter((o: any) => o.correct);
+        const allCorrect = selectedOpts.length === correctOpts.length &&
+          selectedOpts.every((o: any) => o.correct);
+        correct = allCorrect;
+      }
+
+      return {
+        questionId: q.id,
+        answer: userAnswer || '',
+        correct
+      };
+    });
+
+    const correctCount = autoGradedAnswers.filter((a: any) => a.correct).length;
+    const totalCount = questions.length;
+    const percent = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+
+    let grade = 0;
+    for (const gs of test.gradingScale) {
+      if (percent >= gs.minPercent) {
+        grade = gs.grade;
+        break;
+      }
+    }
+
+    const updatedAttempt = {
+      ...viewingAttempt,
+      answers: autoGradedAnswers,
+      correct: correctCount,
+      total: totalCount,
+      percent,
+      grade,
+      manuallyGraded: false,
+    };
+
+    setTestAttempts((prev: any[]) => {
+      const idx = prev.findIndex((a: any) => a.id === viewingAttempt.id);
+      if (idx >= 0) {
+        const newAttempts = [...prev];
+        newAttempts[idx] = updatedAttempt;
+        return newAttempts;
+      }
+      return prev;
+    });
+
+    setViewingAttempt(updatedAttempt);
+    setManualGrading({});
+  };
+
+  // Переключить правильность ответа
+  const toggleAnswerCorrect = (questionId: string) => {
+    setManualGrading(prev => ({
+      ...prev,
+      [questionId]: prev[questionId] === undefined
+        ? !(viewingAttempt.answers?.find((a: any) => a.questionId === questionId)?.correct ?? false)
+        : !prev[questionId],
+    }));
+  };
+
+  // Получить вопросы по variantId
+  const getAttemptQuestions = (variantId?: string) => {
+    if (test.useVariants && variantId && test.variants) {
+      const variant = test.variants.find(v => v.id === variantId);
+      return variant?.questions || test.questions;
+    }
+    return test.questions;
+  };
+
+  // Получить ответ для вопроса по его ID (с учётом вариантов)
+  const getAnswerForQuestion = (questionId: string, viewingAttempt: any, questionIndex?: number) => {
+    // Сначала ищем по точному совпадению ID вопроса
+    const ans = viewingAttempt.answers?.find((a: any) => a.questionId === questionId);
+
+    if (ans) {
+      console.log('Found answer by questionId:', { questionId, answer: ans.answer, correct: ans.correct });
+      return ans;
+    }
+
+    // Если ответ не найден по ID, попробуем найти по индексу (для старых данных)
+    if (questionIndex !== undefined && viewingAttempt.answers && viewingAttempt.answers[questionIndex]) {
+      console.log('Answer NOT found by questionId, using index fallback:', { questionId, questionIndex });
+      return viewingAttempt.answers[questionIndex];
+    }
+
+    console.log('Answer NOT found for questionId:', questionId);
+    console.log('Available answers:', viewingAttempt.answers?.map((a: any) => ({ questionId: a.questionId, answer: a.answer })));
+    return null;
+  };
+
+  // Получить название варианта
+  const getVariantName = (variantId?: string) => {
+    if (!variantId || !test.useVariants || !test.variants) return null;
+    const variant = test.variants.find(v => v.id === variantId);
+    return variant?.name || null;
+  };
+
+  const studentResults = students.map(s => {
+    const allAttempts = safeAttempts.filter((a: any) => a.studentId === s.id && a.testId === test.id && a.date === date)
+      .sort((a: any, b: any) => {
+        const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+        const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+        return timeB - timeA;
+      });
+    const latest = allAttempts[0];
+    const hasRetake = safeRetakes.some((r: any) => r.studentId === s.id && r.testId === test.id);
+    const assignment = getAssignment(s.id);
+    return { student: s, latest, allAttempts, hasRetake, attemptCount: allAttempts.length, assignment };
+  });
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="mb-6">
+      <button onClick={() => setShowResults(!showResults)}
+        className="flex items-center gap-2 px-4 py-3 bg-violet-50 text-violet-700 rounded-xl font-medium hover:bg-violet-100 transition-colors w-full border border-violet-200">
+        <FileText className="w-5 h-5" />
+        Результаты теста: {test.title}
+        <ChevronRight className={`w-4 h-4 ml-auto transition-transform ${showResults ? 'rotate-90' : ''}`} />
+      </button>
+
+      {showResults && (
+        <div className="bg-white rounded-b-2xl border border-t-0 border-gray-200 overflow-hidden animate-fadeIn">
+          {viewingAttempt ? (
+            // Detailed attempt view
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <button onClick={() => {
+                  setViewingAttempt(null);
+                  setManualGrading({});
+                }} className="flex items-center gap-1 text-sm text-primary-600">
+                  <ArrowLeft className="w-4 h-4" /> Назад к списку
+                </button>
+                <div className="flex items-center gap-2">
+                  {viewingAttempt.manuallyGraded && (
+                    <button onClick={resetToAutoGrading}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                      <RefreshCw className="w-3.5 h-3.5" /> Сбросить на авто
+                    </button>
+                  )}
+                  <button onClick={recalculateResults}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                    <Save className="w-3.5 h-3.5" /> Сохранить проверку
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500">Баллы</div>
+                  <div className="font-bold text-gray-900">{viewingAttempt.correct ?? 0}/{viewingAttempt.total ?? 0}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500">Процент</div>
+                  <div className="font-bold text-gray-900">{viewingAttempt.percent ?? 0}%</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500">Оценка</div>
+                  <div className={`font-bold text-lg ${viewingAttempt.grade >= 4 ? 'text-green-600' : viewingAttempt.grade === 3 ? 'text-yellow-600' : 'text-red-600'}`}>{viewingAttempt.grade ?? 0}</div>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <div className="text-xs text-gray-500">Время</div>
+                  <div className="font-bold text-gray-900">{viewingAttempt.timeSpent ? formatTime(viewingAttempt.timeSpent) : '—'}</div>
+                </div>
+              </div>
+              {getVariantName(viewingAttempt.variantId) && (
+                <div className="bg-amber-50 rounded-lg p-2 text-center mb-4">
+                  <span className="text-xs text-gray-600">Вариант: </span>
+                  <span className="text-sm font-semibold text-amber-700">{getVariantName(viewingAttempt.variantId)}</span>
+                </div>
+              )}
+              {viewingAttempt.manuallyGraded && (
+                <div className="bg-blue-50 rounded-lg p-2 text-center mb-4">
+                  <span className="text-xs text-blue-700">✏️ Ручная проверка - нажмите "Сохранить проверку" для фиксации изменений</span>
+                </div>
+              )}
+
+              <h4 className="font-medium text-gray-900 mb-3">Ответы по вопросам:</h4>
+              <div className="space-y-3">
+                {getAttemptQuestions(viewingAttempt.variantId).map((q, qi) => {
+                  const ans = getAnswerForQuestion(q.id, viewingAttempt, qi);
+                  const currentCorrect = manualGrading[q.id] ?? ans?.correct ?? false;
+                  const isModified = manualGrading[q.id] !== undefined;
+
+                  return (
+                    <div key={q.id} className={`p-3 rounded-xl border transition-colors ${currentCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'} ${isModified ? 'ring-2 ring-blue-400' : ''}`}>
+                      <div className="flex items-start gap-2">
+                        <button
+                          onClick={() => toggleAnswerCorrect(q.id)}
+                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all hover:scale-110 ${
+                            currentCorrect ? 'bg-green-200 text-green-800 cursor-pointer' : 'bg-red-200 text-red-800 cursor-pointer'
+                          }`}
+                          title="Нажмите, чтобы изменить правильность"
+                        >
+                          {currentCorrect ? '✓' : '✗'}
+                        </button>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">{q.text}</p>
+                          {q.formula && (
+                            <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-center">
+                              <span
+                                dangerouslySetInnerHTML={{
+                                  __html: katex.renderToString(q.formula, {
+                                    throwOnError: false,
+                                    displayMode: true,
+                                  }),
+                                }}
+                                className="text-base dark:text-blue-300"
+                              />
+                            </div>
+                          )}
+                          {q.image && <img src={q.image} alt="" className="mt-2 max-w-full rounded-lg max-h-48 object-contain" />}
+                          {q.type === 'text' ? (
+                            <div className="mt-1 text-xs">
+                              <span className="text-gray-500">Ответ: </span>
+                              <span className={currentCorrect ? 'text-green-700' : 'text-red-700'}>{ans?.answer || '—'}</span>
+                              {!currentCorrect && q.correctAnswer && <span className="text-green-700 ml-2">(Верно: {q.correctAnswer})</span>}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-xs">
+                              {q.options && q.options.map(opt => {
+                                const selected = Array.isArray(ans?.answer) ? ans.answer.includes(opt.id) : ans?.answer === opt.id;
+                                return (
+                                  <div key={opt.id} className={`flex items-center gap-1 ${selected ? (opt.correct ? 'text-green-700 font-medium' : 'text-red-700 font-medium') : opt.correct ? 'text-green-600' : 'text-gray-500'}`}>
+                                    {selected ? (opt.correct ? '✓' : '✗') : opt.correct ? '○' : '·'} {opt.text}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {isModified && (
+                            <div className="mt-1 text-xs text-blue-600 font-medium">
+                              ← Изменено (нажмите для отмены)
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            // Student list
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-xs text-gray-600 border-b border-gray-200">
+                  <th className="px-3 py-2 text-left">№</th>
+                  <th className="px-3 py-2 text-left">ФИ</th>
+                  <th className="px-3 py-2 text-center">Назначен</th>
+                  {test.useVariants && <th className="px-3 py-2 text-center">Вариант</th>}
+                  <th className="px-3 py-2 text-center">Статус</th>
+                  <th className="px-3 py-2 text-center">Результат</th>
+                  <th className="px-3 py-2 text-center">Оценка</th>
+                  <th className="px-3 py-2 text-center">Время</th>
+                  <th className="px-3 py-2 text-center">Попытки</th>
+                  <th className="px-3 py-2 text-center">Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {studentResults.map((sr, idx) => (
+                  <tr key={sr.student.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{sr.student.lastName} {sr.student.firstName}</td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        onClick={() => setAssignment(sr.student.id, { assigned: !sr.assignment?.assigned })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          sr.assignment?.assigned !== false
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-red-100 text-red-700 hover:bg-red-200'
+                        }`}
+                      >
+                        {sr.assignment?.assigned !== false ? 'Да' : 'Нет'}
+                      </button>
+                    </td>
+                    {test.useVariants && (
+                      <td className="px-3 py-2 text-center">
+                        {sr.assignment?.assigned !== false ? (
+                          <select
+                            value={sr.assignment?.variantId || ''}
+                            onChange={(e) => setAssignment(sr.student.id, { variantId: e.target.value || undefined })}
+                            className="px-2 py-1 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                          >
+                            <option value="">—</option>
+                            {test.variants?.map((v) => (
+                              <option key={v.id} value={v.id}>{v.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="px-3 py-2 text-center">
+                      {sr.assignment?.assigned === false ? (
+                        <span className="text-xs font-medium text-red-700 bg-red-50 px-2 py-1 rounded-md">Освобождён</span>
+                      ) : sr.latest ? (
+                        <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-md">Сдал</span>
+                      ) : sr.hasRetake ? (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-md">⏳ Ожидает</span>
+                      ) : (
+                        <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-md">Не сдал</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs">
+                      {sr.latest ? `${sr.latest.correct}/${sr.latest.total} (${sr.latest.percent}%)` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {sr.latest ? (
+                        <span className={`font-bold ${sr.latest.grade >= 4 ? 'text-green-600' : sr.latest.grade === 3 ? 'text-yellow-600' : 'text-red-600'}`}>{sr.latest.grade}</span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs">
+                      {sr.latest?.timeSpent ? formatTime(sr.latest.timeSpent) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center text-xs">{sr.attemptCount}</td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        {sr.latest && (
+                          <button onClick={() => setViewingAttempt(sr.latest)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600" title="Подробнее">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
+                        {sr.latest && !sr.hasRetake && sr.assignment?.assigned !== false && (
+                          <button onClick={() => {
+                            if (setTestRetakes && typeof setTestRetakes === 'function') {
+                              setTestRetakes((prev: any[]) => [...(prev || []), { studentId: sr.student.id, testId: test.id, date }]);
+                            }
+                          }}
+                            className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600" title="Дать пересдачу">
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        )}
+                        {sr.hasRetake && (
+                          <button onClick={() => {
+                            if (setTestRetakes && typeof setTestRetakes === 'function') {
+                              setTestRetakes((prev: any[]) => (prev || []).filter((r: any) => !(r.studentId === sr.student.id && r.testId === test.id)));
+                            }
+                          }}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Отменить">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================== TESTS MANAGER ====================
+const TestsManager: React.FC = () => {
+  const { tests, setTests } = useData();
+  const [editingTest, setEditingTest] = useState<Test | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
+
+  const createNewTest = () => {
+    const newTest: Test = {
+      id: `t${Date.now()}`, title: '', subject: SUBJECTS[0], timeLimit: 0,
+      gradingScale: [{ minPercent: 90, grade: 5 }, { minPercent: 70, grade: 4 }, { minPercent: 50, grade: 3 }, { minPercent: 0, grade: 2 }],
+      questions: [], variants: [], useVariants: false, createdAt: new Date().toISOString(),
+    };
+    setEditingTest(newTest);
+    setShowEditor(true);
+  };
+
+  const startEdit = (test: Test) => {
+    setEditingTest({
+      ...test,
+      questions: test.questions.map(q => ({ ...q, options: q.options.map(o => ({ ...o })) })),
+      variants: test.variants || [],
+      useVariants: test.useVariants || false,
+    });
+    setShowEditor(true);
+  };
+
+  const saveTest = (test: Test) => {
+    setTests(prev => {
+      const exists = prev.find(t => t.id === test.id);
+      if (exists) return prev.map(t => t.id === test.id ? test : t);
+      return [...prev, test];
+    });
+    setShowEditor(false);
+    setEditingTest(null);
+  };
+
+  const deleteTest = (id: string) => {
+    setTests(prev => prev.filter(t => t.id !== id));
+  };
+
+  if (showEditor && editingTest) {
+    return <TestEditor test={editingTest} onSave={saveTest} onCancel={() => { setShowEditor(false); setEditingTest(null); }} />;
+  }
+
+  return (
+    <div className="animate-fadeIn">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Тесты</h2>
+        <button onClick={createNewTest} className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors font-medium">
+          <Plus className="w-5 h-5" /> Создать тест
+        </button>
+      </div>
+      <div className="grid gap-4">
+        {tests.map(test => {
+          const hasVariants = test.useVariants && test.variants && test.variants.length > 0;
+          return (
+            <div key={test.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-all">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-gray-900">{test.title || 'Без названия'}</h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {test.subject} · {hasVariants ? `${test.variants.length} вариант${test.variants.length === 1 ? '' : test.variants.length > 1 && test.variants.length < 5 ? 'а' : 'ов'}` : `${test.questions.length} вопросов`} {test.timeLimit > 0 ? `· ${test.timeLimit} мин` : ''}
+                  </p>
+                  {hasVariants && (
+                    <div className="flex gap-1 mt-1">
+                      {test.variants.map(v => (
+                        <span key={v.id} className="px-2 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
+                          {v.name}: {v.questions.length}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setEditingTest(test); setShowEditor(true); }} className="p-2 rounded-lg hover:bg-gray-100">
+                  <Edit2 className="w-4 h-4 text-gray-500" />
+                </button>
+                <button onClick={() => deleteTest(test.id)} className="p-2 rounded-lg hover:bg-red-50">
+                  <Trash2 className="w-4 h-4 text-red-500" />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {tests.length === 0 && (
+          <div className="text-center py-12 text-gray-400">
+            <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+            <p>Нет тестов. Создайте первый тест.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==================== TEST EDITOR ====================
+const TestEditor: React.FC<{ test: Test; onSave: (t: Test) => void; onCancel: () => void }> = ({ test: initialTest, onSave, onCancel }) => {
+  const [test, setTest] = useState<Test>(initialTest);
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
+
+  const addOption = (qId: string) => {
+    updateEditingQuestions(
+      getEditingQuestions().map(q => q.id === qId ? { ...q, options: [...q.options, { id: `o${Date.now()}`, text: '', correct: false }] } : q)
+    );
+  };
+
+  const updateOption = (qId: string, oId: string, updates: { text?: string; correct?: boolean }) => {
+    updateEditingQuestions(
+      getEditingQuestions().map(q => q.id === qId ? {
+        ...q, options: q.options.map(o => {
+          if (o.id === oId) return { ...o, ...updates };
+          if (updates.correct && q.type === 'single') return { ...o, correct: false };
+          return o;
+        })
+      } : q)
+    );
+  };
+
+  const removeOption = (qId: string, oId: string) => {
+    updateEditingQuestions(
+      getEditingQuestions().map(q => q.id === qId ? { ...q, options: q.options.filter(o => o.id !== oId) } : q)
+    );
+  };
+
+  // Variant management functions
+  const addVariant = () => {
+    const newVariant = {
+      id: `v${Date.now()}`,
+      name: `Вариант ${(test.variants?.length || 0) + 1}`,
+      questions: [],
+    };
+    setTest(prev => ({ ...prev, variants: [...(prev.variants || []), newVariant] }));
+  };
+
+  const updateVariant = (variantId: string, updates: { name?: string; questions?: TestQuestion[] }) => {
+    setTest(prev => ({
+      ...prev,
+      variants: (prev.variants || []).map(v => v.id === variantId ? { ...v, ...updates } : v),
+    }));
+  };
+
+  const deleteVariant = (variantId: string) => {
+    if (editingVariantId === variantId) setEditingVariantId(null);
+    setTest(prev => ({ ...prev, variants: (prev.variants || []).filter(v => v.id !== variantId) }));
+  };
+
+  const duplicateVariant = (variantId: string) => {
+    const variant = (test.variants || []).find(v => v.id === variantId);
+    if (!variant) return;
+    const newVariant = {
+      id: `v${Date.now()}`,
+      name: `${variant.name} (копия)`,
+      questions: variant.questions.map(q => ({
+        ...q,
+        id: `q${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        options: q.options.map(o => ({ ...o, id: `o${Date.now()}_${Math.random().toString(36).substr(2, 9)}` })),
+      })),
+    };
+    setTest(prev => ({ ...prev, variants: [...(prev.variants || []), newVariant] }));
+  };
+
+  const getEditingQuestions = () => {
+    if (!editingVariantId) return test.questions;
+    const variant = (test.variants || []).find(v => v.id === editingVariantId);
+    return variant?.questions || [];
+  };
+
+  const updateEditingQuestions = (questions: TestQuestion[]) => {
+    if (editingVariantId) {
+      updateVariant(editingVariantId, { questions });
+    } else {
+      setTest(prev => ({ ...prev, questions }));
+    }
+  };
+
+  const addQuestion = () => {
+    const q: TestQuestion = { id: `q${Date.now()}`, type: 'single', text: '', options: [{ id: `o${Date.now()}a`, text: '', correct: true }, { id: `o${Date.now()}b`, text: '', correct: false }], points: 1 };
+    updateEditingQuestions([...getEditingQuestions(), q]);
+  };
+
+  const updateQuestion = (qId: string, updates: Partial<TestQuestion>) => {
+    updateEditingQuestions(
+      getEditingQuestions().map(q => q.id === qId ? { ...q, ...updates } : q)
+    );
+  };
+
+  const removeQuestion = (qId: string) => {
+    updateEditingQuestions(getEditingQuestions().filter(q => q.id !== qId));
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={onCancel} className="flex items-center gap-2 text-primary-600 hover:text-primary-700 font-medium">
+          <ArrowLeft className="w-4 h-4" /> Назад
+        </button>
+        <button onClick={() => onSave(test)} className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors font-medium">
+          <Save className="w-4 h-4" /> Сохранить
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Название</label>
+            <input type="text" value={test.title} onChange={e => setTest(prev => ({ ...prev, title: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Предмет</label>
+            <select value={test.subject} onChange={e => setTest(prev => ({ ...prev, subject: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500">
+              {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Лимит (мин, 0=без)</label>
+            <input type="number" value={test.timeLimit} onChange={e => setTest(prev => ({ ...prev, timeLimit: Number(e.target.value) }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Шкала оценок</label>
+          <div className="flex flex-wrap gap-2">
+            {test.gradingScale.sort((a, b) => b.minPercent - a.minPercent).map((gs, i) => (
+              <div key={i} className="flex items-center gap-1 bg-gray-50 rounded-lg px-2 py-1">
+                <span className="text-xs text-gray-500">от</span>
+                <input type="number" value={gs.minPercent} onChange={e => {
+                  setTest(prev => ({ ...prev, gradingScale: prev.gradingScale.map((g, gi) => gi === i ? { ...g, minPercent: Number(e.target.value) } : g) }));
+                }} className="w-12 px-1 py-0.5 text-xs border rounded bg-white text-center" />
+                <span className="text-xs text-gray-500">% =</span>
+                <span className="text-sm font-bold">{gs.grade}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Variants Toggle */}
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={test.useVariants || false}
+              onChange={e => setTest(prev => ({ ...prev, useVariants: e.target.checked }))}
+              className="w-5 h-5 text-amber-600 rounded focus:ring-amber-500"
+            />
+            <span className="font-medium text-gray-900 dark:text-white">Использовать варианты теста</span>
+          </label>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Ученики будут получать разные варианты вопросов для предотвращения списывания
+          </span>
+        </div>
+      </div>
+
+      {/* Variants Section */}
+      {test.useVariants && (
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-gray-900">Варианты теста</h3>
+          <button onClick={addVariant}
+            className="flex items-center gap-2 px-3 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
+            <Plus className="w-4 h-4" /> Добавить вариант
+          </button>
+        </div>
+
+        {(test.variants || []).length === 0 ? (
+          <div className="p-8 bg-gray-50 rounded-xl text-center">
+            <FileText className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+            <p className="text-gray-500 text-sm">Нет вариантов</p>
+            <p className="text-gray-400 text-xs mt-1">Создайте варианты, чтобы ученики получали разные вопросы</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {(test.variants || []).map(variant => {
+              const isEditing = editingVariantId === variant.id;
+              return (
+                <div key={variant.id} className={`p-4 rounded-xl border-2 transition-all ${
+                  isEditing
+                    ? 'border-primary-500 bg-primary-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
+                        isEditing ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-600'
+                      }`}>
+                        {variant.questions.length}
+                      </span>
+                      <input
+                        type="text"
+                        value={variant.name}
+                        onChange={e => updateVariant(variant.id, { name: e.target.value })}
+                        className="font-semibold text-gray-900 bg-transparent border-b-2 border-transparent hover:border-gray-300 focus:border-primary-500 focus:outline-none px-1 py-0.5"
+                      />
+                      <span className="text-xs text-gray-500">вопросов</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {!isEditing ? (
+                        <button onClick={() => setEditingVariantId(variant.id)}
+                          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                          title="Редактировать вопросы варианта">
+                          <Edit2 className="w-4 h-4 text-gray-500" />
+                        </button>
+                      ) : (
+                        <button onClick={() => setEditingVariantId(null)}
+                          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                          title="Закрыть редактор">
+                          <X className="w-4 h-4 text-gray-500" />
+                        </button>
+                      )}
+                      <button onClick={() => duplicateVariant(variant.id)}
+                        className="p-2 rounded-lg hover:bg-blue-50 transition-colors"
+                        title="Скопировать вариант">
+                        <FileText className="w-4 h-4 text-blue-500" />
+                      </button>
+                      <button onClick={() => deleteVariant(variant.id)}
+                        className="p-2 rounded-lg hover:bg-red-50 transition-colors"
+                        title="Удалить вариант">
+                        <Trash2 className="w-4 h-4 text-red-500" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {editingVariantId && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <p className="text-sm text-gray-600 mb-3">
+              Редактируете: <span className="font-semibold">{(test.variants || []).find(v => v.id === editingVariantId)?.name}</span>
+            </p>
+          </div>
+        )}
+      </div>
+      )}
+
+      <div className="space-y-4">
+        <h3 className="font-semibold text-gray-900">
+          {editingVariantId
+            ? `Вопросы варианта "${(test.variants || []).find(v => v.id === editingVariantId)?.name}"`
+            : 'Базовые вопросы'}
+        </h3>
+
+        {getEditingQuestions().map((q, qi) => (
+          <div key={q.id} className="bg-white rounded-2xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-bold text-gray-900">Вопрос {qi + 1}</span>
+              <div className="flex items-center gap-2">
+                <select value={q.type} onChange={e => updateQuestion(q.id, { type: e.target.value as any })}
+                  className="px-2 py-1 text-xs border rounded-lg bg-gray-50">
+                  <option value="single">Один ответ</option>
+                  <option value="multiple">Несколько ответов</option>
+                  <option value="text">Текстовый</option>
+                </select>
+                <button onClick={() => removeQuestion(q.id)} className="p-1 rounded-lg hover:bg-red-50 text-red-500">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <QuestionEditor
+              value={q.text}
+              onChange={(value) => updateQuestion(q.id, { text: value })}
+              placeholder="Введите текст вопроса..."
+              image={q.image}
+              onImageChange={(image) => updateQuestion(q.id, { image })}
+              formula={q.formula || ''}
+              onFormulaChange={(formula) => updateQuestion(q.id, { formula })}
+            />
+
+            {(q.type === 'single' || q.type === 'multiple') && (
+              <div className="mt-6 space-y-2">
+                {q.options.map(opt => (
+                  <div key={opt.id} className="flex items-center gap-2">
+                    <input type={q.type === 'single' ? 'radio' : 'checkbox'} checked={opt.correct}
+                      onChange={() => updateOption(q.id, opt.id, { correct: q.type === 'single' ? true : !opt.correct })}
+                      className="w-4 h-4" />
+                    <input type="text" value={opt.text} onChange={e => updateOption(q.id, opt.id, { text: e.target.value })}
+                      placeholder="Вариант ответа..." className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                    <button onClick={() => removeOption(q.id, opt.id)} className="p-1 text-red-400 hover:text-red-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => addOption(q.id)} className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> Добавить вариант
+                </button>
+              </div>
+            )}
+
+            {q.type === 'text' && (
+              <div className="mt-6">
+                <input type="text" value={q.correctAnswer || ''} onChange={e => updateQuestion(q.id, { correctAnswer: e.target.value })}
+                  placeholder="Правильный ответ..." className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+            )}
+          </div>
+        ))}
+        <button onClick={addQuestion}
+          className="w-full py-4 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-primary-400 hover:text-primary-600 transition-all flex items-center justify-center gap-2">
+          <Plus className="w-5 h-5" /> Добавить вопрос
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ==================== TRANSLITERATION ====================
+const TRANSLIT_MAP: Record<string, string> = {
+  'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh','з':'z','и':'i',
+  'й':'y','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r','с':'s','т':'t',
+  'у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'sch','ъ':'','ы':'y','ь':'',
+  'э':'e','ю':'yu','я':'ya',
+  'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'Yo','Ж':'Zh','З':'Z','И':'I',
+  'Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R','С':'S','Т':'T',
+  'У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Sch','Ъ':'','Ы':'Y','Ь':'',
+  'Э':'E','Ю':'Yu','Я':'Ya',
+};
+
+function transliterate(text: string): string {
+  return text.split('').map(c => TRANSLIT_MAP[c] ?? c).join('');
+}
+
+function generateUsername(lastName: string, firstName: string): string {
+  const lastTranslit = transliterate(lastName).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const firstTranslit = transliterate(firstName).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!lastTranslit) return firstTranslit || 'user';
+  if (!firstTranslit) return lastTranslit;
+  return `${lastTranslit}.${firstTranslit.charAt(0)}`;
+}
+
+function generatePassword(length: number = 8): string {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let pass = '';
+  for (let i = 0; i < length; i++) {
+    pass += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return pass;
+}
+
+// ==================== STUDENTS MANAGER ====================
+const StudentsManager: React.FC = () => {
+  const { students, setStudents, setGrades, setAttendance, setTestAttempts, setTestRetakes } = useData();
+  const [search, setSearch] = useState('');
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', username: '', password: '' });
+
+  const sorted = useMemo(() =>
+    [...students]
+      .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+      .filter(s => `${s.lastName} ${s.firstName}`.toLowerCase().includes(search.toLowerCase())),
+    [students, search]
+  );
+
+  const openAdd = () => {
+    setEditingStudent(null);
+    const newPass = generatePassword();
+    setFormData({ firstName: '', lastName: '', username: '', password: newPass });
+    setShowModal(true);
+    setShowPassword(true);
+  };
+
+  const openEdit = (s: Student) => {
+    setEditingStudent(s);
+    setFormData({ firstName: s.firstName, lastName: s.lastName, username: s.username, password: s.password });
+    setShowModal(true);
+    setShowPassword(false);
+  };
+
+  const handleNameChange = (field: 'firstName' | 'lastName', value: string) => {
+    setFormData(prev => {
+      const updated = { ...prev, [field]: value };
+      // Auto-generate username only when adding new student (not editing)
+      if (!editingStudent) {
+        updated.username = generateUsername(
+          field === 'lastName' ? value : prev.lastName,
+          field === 'firstName' ? value : prev.firstName
+        );
+      }
+      return updated;
+    });
+  };
+
+  const regeneratePassword = () => {
+    setFormData(prev => ({ ...prev, password: generatePassword() }));
+    setShowPassword(true);
+  };
+
+  const save = () => {
+    if (!formData.firstName || !formData.lastName || !formData.username) {
+      alert('Заполните имя, фамилию и логин');
+      return;
+    }
+    if (!formData.password) {
+      setFormData(prev => ({ ...prev, password: generatePassword() }));
+    }
+    if (editingStudent) {
+      setStudents(prev => prev.map(s => s.id === editingStudent.id ? { ...s, ...formData } : s));
+    } else {
+      setStudents(prev => [...prev, { id: `s${Date.now()}`, ...formData }]);
+    }
+    setShowModal(false);
+  };
+
+  const deleteStudent = (id: string) => {
+    setStudents(prev => prev.filter(s => s.id !== id));
+    // Clean up all related data for deleted student
+    setGrades(prev => prev.filter(g => g.studentId !== id));
+    setAttendance(prev => prev.filter(a => a.studentId !== id));
+    setTestAttempts(prev => prev.filter(a => a.studentId !== id));
+    setTestRetakes(prev => prev.filter(r => r.studentId !== id));
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-gray-900">Ученики</h2>
+        <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors font-medium">
+          <Plus className="w-5 h-5" /> Добавить
+        </button>
+      </div>
+
+      <div className="relative mb-4">
+        <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск..."
+          className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-600">
+              <th className="px-4 py-3 text-left">№</th>
+              <th className="px-4 py-3 text-left">ФИО</th>
+              <th className="px-4 py-3 text-left">Логин</th>
+              <th className="px-4 py-3 text-left">Пароль</th>
+              <th className="px-4 py-3 text-center">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((s, i) => (
+              <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <td className="px-4 py-3 text-gray-500">{i + 1}</td>
+                <td className="px-4 py-3 font-medium text-gray-900">{s.lastName} {s.firstName}</td>
+                <td className="px-4 py-3 text-gray-600">{s.username}</td>
+                <td className="px-4 py-3 text-gray-600">••••••</td>
+                <td className="px-4 py-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <button onClick={() => openEdit(s)} className="p-1.5 rounded-lg hover:bg-gray-100"><Edit2 className="w-4 h-4 text-gray-500" /></button>
+                    <button onClick={() => deleteStudent(s.id)} className="p-1.5 rounded-lg hover:bg-red-50"><Trash2 className="w-4 h-4 text-red-500" /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[200] p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 animate-scaleIn" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900">{editingStudent ? 'Редактировать' : 'Добавить ученика'}</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Фамилия</label>
+                <input type="text" value={formData.lastName} onChange={e => handleNameChange('lastName', e.target.value)}
+                  placeholder="Иванов" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Имя</label>
+                <input type="text" value={formData.firstName} onChange={e => handleNameChange('firstName', e.target.value)}
+                  placeholder="Артём" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Логин <span className="text-gray-400">(генерируется автоматически)</span></label>
+                <input type="text" value={formData.username} onChange={e => setFormData(p => ({ ...p, username: e.target.value }))}
+                  placeholder="ivanov.a" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Пароль <span className="text-gray-400">(генерируется автоматически)</span></label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input type={showPassword ? 'text' : 'password'} value={formData.password} onChange={e => setFormData(p => ({ ...p, password: e.target.value }))}
+                      placeholder="Пароль" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 pr-10" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <button onClick={regeneratePassword} className="px-3 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium whitespace-nowrap">
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={save} className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors font-medium">
+                {editingStudent ? 'Сохранить' : 'Добавить'}
+              </button>
+              <button onClick={() => setShowModal(false)} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium">
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
