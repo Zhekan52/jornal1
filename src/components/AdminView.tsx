@@ -6,11 +6,14 @@ import { QuestionEditor } from './QuestionEditor';
 import { Tests } from './Tests';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import * as XLSX from 'xlsx';
+import html2pdf from 'html2pdf.js';
 import {
   BookOpen, Calendar, ClipboardList, Users, LogOut, Settings, Plus,
   Trash2, Edit2, Search, X, Save, ChevronDown, Eye, EyeOff,
   AlertTriangle, TrendingUp, TrendingDown, FileText, Paperclip,
-  BarChart3, Award, ArrowLeft, RefreshCw, ChevronRight, Tag, Info
+  BarChart3, Award, ArrowLeft, RefreshCw, ChevronRight, Tag, Info,
+  Download, FileSpreadsheet
 } from 'lucide-react';
 import {
   SUBJECTS, MONTH_NAMES, MONTH_NAMES_GEN, ATTENDANCE_TYPES,
@@ -19,6 +22,306 @@ import {
 } from '../data';
 
 type Tab = 'dashboard' | 'schedule' | 'journal' | 'tests' | 'students' | 'lessonTypes';
+
+// ==================== EXPORT MODAL ====================
+const ExportModal: React.FC<{
+  students: Student[];
+  grades: any[];
+  attendance: any[];
+  diaryEntries: any[];
+  lessons: any[];
+  selectedSubject: string;
+  onClose: () => void;
+}> = ({ students, grades, attendance, diaryEntries, lessons, selectedSubject, onClose }) => {
+  const [exporting, setExporting] = useState(false);
+  const [exportType, setExportType] = useState<'excel' | 'pdf' | 'report' | 'attendance' | null>(null);
+
+  const sortedStudents = useMemo(() =>
+    [...students].sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)),
+    [students]
+  );
+
+  // Экспорт журнала в Excel
+  const exportJournalToExcel = async () => {
+    setExporting(true);
+    try {
+      // Получаем все даты для этого предмета
+      const subjectLessons = lessons.filter(l => l.subject === selectedSubject);
+      const dates = [...new Set(subjectLessons.map(l => l.date))].sort();
+      
+      // Создаём данные для каждого ученика
+      const data = sortedStudents.map((student, idx) => {
+        const row: any = { '№': idx + 1, 'ФИО': `${student.lastName} ${student.firstName}` };
+        
+        dates.forEach(date => {
+          const dateStr = date.slice(8) + '.' + date.slice(5,7);
+          const grade = grades.find(g => 
+            g.studentId === student.id && 
+            g.date === date && 
+            g.subject === selectedSubject &&
+            !g.columnId
+          );
+          const att = attendance.find(a => 
+            a.studentId === student.id && 
+            a.date === date && 
+            a.subject === selectedSubject
+          );
+          
+          if (att) {
+            row[dateStr] = att.type;
+          } else if (grade) {
+            row[dateStr] = grade.value;
+          } else {
+            row[dateStr] = '';
+          }
+        });
+        
+        // Средний балл
+        const studentGrades = grades.filter(g => 
+          g.studentId === student.id && 
+          g.subject === selectedSubject &&
+          !g.columnId
+        );
+        row['Ср. балл'] = studentGrades.length > 0 
+          ? (studentGrades.reduce((s, g) => s + g.value, 0) / studentGrades.length).toFixed(2)
+          : '';
+        
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, selectedSubject);
+      
+      // Настраиваем ширину колонок
+      const colWidths = [{ wch: 5 }, { wch: 25 }, ...dates.map(() => ({ wch: 8 })), { wch: 10 }];
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `Журнал_${selectedSubject}_${new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')}.xlsx`);
+      onClose();
+    } catch (error) {
+      console.error('Ошибка экспорта Excel:', error);
+      alert('Ошибка при экспорте в Excel');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Экспорт в PDF
+  const exportToPDF = async () => {
+    setExporting(true);
+    try {
+      const element = document.getElementById('journal-export-table');
+      if (!element) {
+        alert('Таблица не найдена');
+        setExporting(false);
+        return;
+      }
+
+      const opt = {
+        margin: 5,
+        filename: `Журнал_${selectedSubject}_${new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'landscape' as const }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+      onClose();
+    } catch (error) {
+      console.error('Ошибка экспорта PDF:', error);
+      alert('Ошибка при экспорте PDF');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Экспорт отчёта по успеваемости
+  const exportReport = async () => {
+    setExporting(true);
+    try {
+      const data = sortedStudents.map((student, idx) => {
+        const studentGrades = grades.filter(g => 
+          g.studentId === student.id && 
+          g.subject === selectedSubject &&
+          !g.columnId
+        );
+        
+        const studentAttendance = attendance.filter(a => 
+          a.studentId === student.id && 
+          a.subject === selectedSubject
+        );
+        
+        const avg = studentGrades.length > 0 
+          ? (studentGrades.reduce((s, g) => s + g.value, 0) / studentGrades.length).toFixed(2)
+          : '—';
+        
+        const present = studentAttendance.filter(a => a.type === 'П').length;
+        const absent = studentAttendance.filter(a => a.type === 'Н').length;
+        
+        return {
+          '№': idx + 1,
+          'ФИО': `${student.lastName} ${student.firstName}`,
+          'Оценок': studentGrades.length,
+          'Ср. балл': avg,
+          'Присутствовал': present,
+          'Отсутствовал': absent,
+          'Посещаемость': studentAttendance.length > 0 
+            ? ((present / studentAttendance.length) * 100).toFixed(0) + '%'
+            : '—'
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Отчёт');
+      
+      const colWidths = [{ wch: 5 }, { wch: 25 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `Отчёт_успеваемость_${selectedSubject}_${new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')}.xlsx`);
+      onClose();
+    } catch (error) {
+      console.error('Ошибка экспорта отчёта:', error);
+      alert('Ошибка при экспорте отчёта');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Экспорт посещаемости
+  const exportAttendance = async () => {
+    setExporting(true);
+    try {
+      const subjectLessons = lessons.filter(l => l.subject === selectedSubject);
+      const dates = [...new Set(subjectLessons.map(l => l.date))].sort();
+      
+      const data = sortedStudents.map((student, idx) => {
+        const row: any = { '№': idx + 1, 'ФИО': `${student.lastName} ${student.firstName}` };
+        
+        const studentAttendance = attendance.filter(a => 
+          a.studentId === student.id && 
+          a.subject === selectedSubject
+        );
+        
+        // Группируем по датам
+        dates.forEach(date => {
+          const dateStr = date.slice(8) + '.' + date.slice(5,7);
+          const att = studentAttendance.find(a => a.date === date);
+          row[dateStr] = att?.type || '';
+        });
+        
+        // Итого
+        const present = studentAttendance.filter(a => a.type === 'П').length;
+        const absent = studentAttendance.filter(a => a.type === 'Н').length;
+        const late = studentAttendance.filter(a => a.type === 'ОП').length;
+        
+        row['Присутствовал'] = present;
+        row['Отсутствовал'] = absent;
+        row['Опоздал'] = late;
+        
+        return row;
+      });
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Посещаемость');
+      
+      const colWidths = [{ wch: 5 }, { wch: 25 }, ...dates.map(() => ({ wch: 8 })), { wch: 12 }, { wch: 12 }, { wch: 10 }];
+      ws['!cols'] = colWidths;
+
+      XLSX.writeFile(wb, `Посещаемость_${selectedSubject}_${new Date().toLocaleDateString('ru-RU').replace(/\./g,'-')}.xlsx`);
+      onClose();
+    } catch (error) {
+      console.error('Ошибка экспорта посещаемости:', error);
+      alert('Ошибка при экспорте посещаемости');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Скрытая таблица для PDF экспорта
+  const subjectLessons = lessons.filter(l => l.subject === selectedSubject);
+  const dates = [...new Set(subjectLessons.map(l => l.date))].sort();
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[200] p-4" onClick={onClose}>
+      <div className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/50 shadow-2xl w-full max-w-md p-7" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-semibold text-gray-900">Экспорт данных</h3>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          <button
+            onClick={exportJournalToExcel}
+            disabled={exporting}
+            className="w-full flex items-center gap-4 p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-all border border-green-200 disabled:opacity-50"
+          >
+            <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+              <FileSpreadsheet className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold text-gray-900">Журнал (Excel)</div>
+              <div className="text-sm text-green-600">Оценки за все даты</div>
+            </div>
+          </button>
+
+          <button
+            onClick={exportToPDF}
+            disabled={exporting}
+            className="w-full flex items-center gap-4 p-4 bg-red-50 hover:bg-red-100 rounded-xl transition-all border border-red-200 disabled:opacity-50"
+          >
+            <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
+              <FileText className="w-6 h-6 text-red-600" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold text-gray-900">Журнал (PDF)</div>
+              <div className="text-sm text-red-600">Для печати</div>
+            </div>
+          </button>
+
+          <button
+            onClick={exportReport}
+            disabled={exporting}
+            className="w-full flex items-center gap-4 p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all border border-blue-200 disabled:opacity-50"
+          >
+            <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+              <BarChart3 className="w-6 h-6 text-blue-600" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold text-gray-900">Отчёт об успеваемости</div>
+              <div className="text-sm text-blue-600">Сводка по всем ученикам</div>
+            </div>
+          </button>
+
+          <button
+            onClick={exportAttendance}
+            disabled={exporting}
+            className="w-full flex items-center gap-4 p-4 bg-amber-50 hover:bg-amber-100 rounded-xl transition-all border border-amber-200 disabled:opacity-50"
+          >
+            <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
+              <ClipboardList className="w-6 h-6 text-amber-600" />
+            </div>
+            <div className="text-left">
+              <div className="font-semibold text-gray-900">Посещаемость</div>
+              <div className="text-sm text-amber-600">Табель посещаемости</div>
+            </div>
+          </button>
+        </div>
+
+        {exporting && (
+          <div className="mt-4 text-center text-sm text-gray-500">
+            Экспорт данных...
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 export const AdminView: React.FC = () => {
   const { user, logout } = useAuth();
@@ -769,6 +1072,7 @@ const Journal: React.FC = () => {
   const [selectedSubject, setSelectedSubject] = useState(SUBJECTS[0]);
   const [journalTab, setJournalTab] = useState<'grades' | 'topics' | 'attendance'>('grades');
   const [showSettings, setShowSettings] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   const [showTrend, setShowTrend] = useState(true);
   const [showNotAsked, setShowNotAsked] = useState(true);
   const [gradePickerState, setGradePickerState] = useState<{ rect: DOMRect; studentId: string; date: string; columnId?: string; lessonNumber?: number } | null>(null);
@@ -1382,6 +1686,13 @@ const Journal: React.FC = () => {
               <Settings className="w-5 h-5 text-gray-500" />
             </button>
           )}
+          <button 
+            onClick={() => setShowExportModal(true)} 
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-primary-600"
+            title="Экспорт"
+          >
+            <Download className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -1889,6 +2200,19 @@ const Journal: React.FC = () => {
           onSelect={type => { setAttendanceMark(attendancePickerState.studentId, attendancePickerState.date, type); setAttendancePickerState(null); }}
           onDelete={() => { deleteAttendanceMark(attendancePickerState.studentId, attendancePickerState.date); setAttendancePickerState(null); }}
           onClose={() => setAttendancePickerState(null)}
+        />
+      )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          students={sortedStudents}
+          grades={grades}
+          attendance={attendance}
+          diaryEntries={diaryEntries}
+          lessons={lessons}
+          selectedSubject={selectedSubject}
+          onClose={() => setShowExportModal(false)}
         />
       )}
     </div>
