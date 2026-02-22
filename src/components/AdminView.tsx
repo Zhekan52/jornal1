@@ -1700,4 +1700,72 @@ const TestResultsSection: React.FC<{
       if (existing && updates.assigned !== false) {
         console.log('Updating assignment (assigned = true)');
         // Удаляем запись если она была с assigned: false
-        if (existing.a
+        if (existing.assigned === false) {
+          return prev.filter((a: any) => a.id !== existing.id);
+        }
+        // Иначе обновляем
+        return prev.map((a: any) => a.id === existing.id ? { ...a, ...updates } : a);
+      }
+
+      // Если назначения нет - создаём новую запись
+      if (!existing) {
+        console.log('Creating new assignment');
+        const newAssignment = {
+          id: `ta_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          studentId,
+          testId: test.id,
+          date,
+          subject,
+          lessonNumber,
+          ...updates,
+        };
+        return [...prev, newAssignment];
+      }
+
+      return prev;
+    });
+  };
+
+  return (
+    <div className="glass rounded-2xl p-4 shadow-soft">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-semibold text-gray-900">Назначения тестов</h4>
+      </div>
+      <div className="space-y-2">
+        {sortedStudents.map((student: any) => {
+          const assignment = testAssignments?.find((a: any) =>
+            a.studentId === student.id &&
+            a.testId === test.id &&
+            a.date === date &&
+            a.subject === subject &&
+            a.lessonNumber === lessonNumber
+          );
+          const isAssigned = assignment?.assigned !== false;
+          const isExempt = assignment?.assigned === false;
+
+          return (
+            <div key={student.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50">
+              <span className="text-sm text-gray-700">{student.lastName} {student.firstName}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => updateAssignment(student.id, { assigned: true })}
+                  disabled={isAssigned}
+                  className={`px-2 py-1 text-xs rounded ${isAssigned ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 hover:bg-green-50'}`}
+                >
+                  Назначен
+                </button>
+                <button
+                  onClick={() => updateAssignment(student.id, { assigned: false })}
+                  disabled={isExempt}
+                  className={`px-2 py-1 text-xs rounded ${isExempt ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600 hover:bg-red-50'}`}
+                >
+                  Освобождён
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
