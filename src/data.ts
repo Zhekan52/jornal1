@@ -34,7 +34,6 @@ export interface DiaryEntry {
   subject: string;
   topic: string;
   homework: string;
-  homeworkFile?: string;
   grade?: number;
   testId?: string;
   checkHomework?: boolean;
