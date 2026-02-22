@@ -2228,6 +2228,7 @@ const TestsManager: React.FC = () => {
                     </div>
                   )}
                 </div>
+              </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => { setEditingTest(test); setShowEditor(true); }} className="p-2 rounded-lg hover:bg-gray-100">
                   <Edit2 className="w-4 h-4 text-gray-500" />
