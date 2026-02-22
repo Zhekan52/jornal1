@@ -824,50 +824,65 @@ const Journal: React.FC = () => {
 
         <div className="glass rounded-2xl p-6 shadow-soft space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
+            {/* Тема урока */}
+            <div className="relative group">
               <label className="block text-sm font-semibold text-gray-700 mb-2">Тема урока</label>
-              <input type="text" value={entry?.topic || ''} onChange={e => {
-                const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
-                if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, topic: e.target.value } : de));
-              }} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all placeholder-gray-400" placeholder="Тема урока..." />
+              <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg bg-gradient-to-br from-violet-100 to-violet-200 flex items-center justify-center">
+                  <FileText className="w-4 h-4 text-violet-600" />
+                </div>
+                <input type="text" value={entry?.topic || ''} onChange={e => {
+                  const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
+                  if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, topic: e.target.value } : de));
+                }} className="w-full pl-13 pr-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition-all placeholder-gray-400 font-medium" placeholder="Введите тему урока..." />
+              </div>
             </div>
-            <div>
+
+            {/* Домашнее задание */}
+            <div className="relative group">
               <label className="block text-sm font-semibold text-gray-700 mb-2">Домашнее задание</label>
               <div className="relative">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-100 to-emerald-200 flex items-center justify-center">
+                  <ClipboardList className="w-4 h-4 text-emerald-600" />
+                </div>
                 <input type="text" value={entry?.homework || ''} onChange={e => {
                   const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
                   if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: e.target.value } : de));
-                }} className="w-full px-4 py-3 pr-24 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all placeholder-gray-400" placeholder="ДЗ..." />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                  {entry?.homeworkFile && (
-                    <button onClick={() => window.open(entry.homeworkFile, '_blank')} className="p-2 rounded-lg bg-primary-50 text-primary-600 hover:bg-primary-100 transition-colors" title="Открыть файл">
-                      <Paperclip className="w-4 h-4" />
-                    </button>
-                  )}
-                  <label className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors cursor-pointer" title="Прикрепить файл">
+                }} className="w-full pl-13 pr-36 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all placeholder-gray-400 font-medium" placeholder="Введите домашнее задание..." />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1.5">
+                  <label className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer group/file">
+                    <Paperclip className="w-3.5 h-3.5 text-gray-500 group-hover/file:text-emerald-600" />
+                    <span className="text-xs font-medium text-gray-600 group-hover/file:text-emerald-700">Файл</span>
                     <input type="file" className="hidden" onChange={e => {
                       const file = e.target.files?.[0];
                       if (file) {
                         const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
                         if (ent) {
-                          // Создаём URL для файла (для локального использования)
                           const fileUrl = URL.createObjectURL(file);
                           setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: fileUrl } : de));
                         }
                       }
                     }} />
-                    <Paperclip className="w-4 h-4" />
                   </label>
-                  {entry?.homeworkFile && (
+                </div>
+              </div>
+              {entry?.homeworkFile && (
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <Paperclip className="w-3.5 h-3.5 text-emerald-600" />
+                    <span className="text-xs font-medium text-emerald-700">Файл прикреплён</span>
+                    <button onClick={() => window.open(entry.homeworkFile, '_blank')} className="p-0.5 hover:bg-emerald-100 rounded" title="Открыть">
+                      <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    </button>
                     <button onClick={() => {
                       const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
                       if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: undefined } : de));
-                    }} className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors" title="Удалить файл">
-                      <X className="w-4 h-4" />
+                    }} className="p-0.5 hover:bg-red-100 rounded" title="Удалить">
+                      <X className="w-3.5 h-3.5 text-red-500" />
                     </button>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
           
@@ -1363,11 +1378,13 @@ const Journal: React.FC = () => {
               <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-600">
                 <th className="px-3 py-2 text-left w-10">№</th>
                 <th className="px-3 py-2 text-left w-28">Дата</th>
-                <th className="px-3 py-2 text-left w-28">Тип урока</th>
+                <th className="px-3 py-2 text-left w-24">Тип урока</th>
                 <th className="px-3 py-2 text-left">Тема урока</th>
+                <th className="px-2 py-2 text-center w-10">Файл</th>
                 <th className="px-3 py-2 text-left">Домашнее задание</th>
-                <th className="px-3 py-2 text-center w-16">Пров. ДЗ</th>
-                <th className="px-3 py-2 text-left w-40">Тест</th>
+                <th className="px-2 py-2 text-center w-10">Файл</th>
+                <th className="px-3 py-2 text-center w-14">Пров. ДЗ</th>
+                <th className="px-3 py-2 text-left w-32">Тест</th>
               </tr>
             </thead>
             <tbody>
@@ -1389,7 +1406,7 @@ const Journal: React.FC = () => {
                       {parseInt(sl.date.split('-')[2])} {MONTH_NAMES_GEN[parseInt(sl.date.split('-')[1]) - 1]?.slice(0, 3)}
                       {slotsOnDate.length > 1 && <span className="text-primary-600 text-[10px] ml-1">(Ур.{sl.lessonNumber})</span>}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <select value={lt?.type || ''} onChange={e => {
                         setLessonTypes(prev => {
                           const existing = prev.find(l => l.date === sl.date && l.subject === selectedSubject && (l.lessonNumber === sl.lessonNumber || (!l.lessonNumber && !sl.lessonNumber)));
@@ -1401,23 +1418,81 @@ const Journal: React.FC = () => {
                         {customLessonTypes && Array.isArray(customLessonTypes) && customLessonTypes.map(clt => <option key={clt.id} value={clt.value}>{clt.label}</option>)}
                       </select>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <input type="text" value={entry?.topic || ''} onChange={e => {
                         const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
                         if (ent) {
                           setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, topic: e.target.value } : de));
                         }
-                      }} placeholder="Тема..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500" />
+                      }} placeholder="Тема..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500" />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-1 py-2 text-center">
+                      {entry?.homeworkFile ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => window.open(entry.homeworkFile, '_blank')} className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors" title="Открыть файл">
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => {
+                            const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
+                            if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: undefined } : de));
+                          }} className="p-1.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors" title="Удалить">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors cursor-pointer" title="Прикрепить файл">
+                          <input type="file" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
+                              if (ent) {
+                                const fileUrl = URL.createObjectURL(file);
+                                setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: fileUrl } : de));
+                              }
+                            }
+                          }} />
+                          <Paperclip className="w-3.5 h-3.5" />
+                        </label>
+                      )}
+                    </td>
+                    <td className="px-2 py-2">
                       <input type="text" value={entry?.homework || ''} onChange={e => {
                         const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
                         if (ent) {
                           setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: e.target.value } : de));
                         }
-                      }} placeholder="ДЗ..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500" />
+                      }} placeholder="ДЗ..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500" />
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="px-1 py-2 text-center">
+                      {entry?.homeworkFile ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => window.open(entry.homeworkFile, '_blank')} className="p-1.5 rounded-lg bg-emerald-100 text-emerald-600 hover:bg-emerald-200 transition-colors" title="Открыть файл">
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => {
+                            const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
+                            if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: undefined } : de));
+                          }} className="p-1.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors" title="Удалить">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors cursor-pointer" title="Прикрепить файл">
+                          <input type="file" className="hidden" onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
+                              if (ent) {
+                                const fileUrl = URL.createObjectURL(file);
+                                setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homeworkFile: fileUrl } : de));
+                              }
+                            }
+                          }} />
+                          <Paperclip className="w-3.5 h-3.5" />
+                        </label>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-center">
                       <input type="checkbox" checked={entry?.checkHomework || false} onChange={e => {
                         const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
                         if (ent) {
@@ -1431,7 +1506,7 @@ const Journal: React.FC = () => {
                         }
                       }} className="w-4 h-4 rounded border-gray-300 text-primary-600" />
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2">
                       <select value={entry?.testId || ''} onChange={e => {
                         const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
                         if (ent) {
@@ -1463,7 +1538,7 @@ const Journal: React.FC = () => {
                 );
               })}
               {allDates.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Нет дат. Добавьте уроки в расписание.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Нет дат. Добавьте уроки в расписание.</td></tr>
               )}
             </tbody>
           </table>
