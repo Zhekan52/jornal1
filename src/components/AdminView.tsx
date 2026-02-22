@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAuth, useData } from '../context';
 import { Schedule } from './Schedule';
 import { QuestionEditor } from './QuestionEditor';
+import { Tests } from './Tests';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import {
@@ -80,8 +81,8 @@ export const AdminView: React.FC = () => {
         {activeTab === 'dashboard' && <AdminDashboard />}
         {activeTab === 'schedule' && <Schedule editable={scheduleEditMode} onEditModeChange={setScheduleEditMode} onOpenLessonPage={handleOpenLessonPage} />}
         {activeTab === 'journal' && <Journal />}
-        {activeTab === 'tests' && <TestsManager />}
-        {activeTab === 'students' && <StudentsManager />}
+        {activeTab === 'tests' && <Tests />}
+        {activeTab === 'students' && <Students />}
         {activeTab === 'lessonTypes' && <LessonTypesManager />}
       </main>
     </div>
@@ -224,6 +225,203 @@ const LessonTypesManager: React.FC = () => {
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setShowModal(false)}
+                className="flex-1 px-5 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium">
+                Отмена
+              </button>
+              <button onClick={save}
+                className="flex-1 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/20 font-medium">
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+// ==================== STUDENTS MANAGER ====================
+const Students: React.FC = () => {
+  const { students, setStudents, grades } = useData();
+  const [showModal, setShowModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const sortedStudents = useMemo(() =>
+    [...students].sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`)),
+    [students]
+  );
+
+  const filteredStudents = useMemo(() => {
+    if (!searchQuery) return sortedStudents;
+    const q = searchQuery.toLowerCase();
+    return sortedStudents.filter(s => 
+      s.firstName.toLowerCase().includes(q) || 
+      s.lastName.toLowerCase().includes(q) ||
+      s.email?.toLowerCase().includes(q)
+    );
+  }, [sortedStudents, searchQuery]);
+
+  const getStudentStats = (studentId: string) => {
+    const sg = grades.filter(g => g.studentId === studentId);
+    const avg = sg.length > 0 ? sg.reduce((a, g) => a + g.value, 0) / sg.length : 0;
+    return { count: sg.length, avg };
+  };
+
+  const openAdd = () => {
+    setEditingStudent(null);
+    setFormData({ firstName: '', lastName: '', email: '' });
+    setShowModal(true);
+  };
+
+  const openEdit = (student: Student) => {
+    setEditingStudent(student);
+    setFormData({ firstName: student.firstName, lastName: student.lastName, email: student.email || '' });
+    setShowModal(true);
+  };
+
+  const save = () => {
+    if (!formData.firstName || !formData.lastName) {
+      alert('Заполните имя и фамилию');
+      return;
+    }
+    if (editingStudent) {
+      setStudents(prev => prev.map(s => s.id === editingStudent.id ? { ...s, ...formData } : s));
+    } else {
+      const newStudent: Student = {
+        id: `stu${Date.now()}`,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email || undefined,
+      };
+      setStudents(prev => [...prev, newStudent]);
+    }
+    setShowModal(false);
+  };
+
+  const deleteStudent = (id: string) => {
+    if (confirm('Удалить этого ученика? Все оценки этого ученика будут удалены.')) {
+      setStudents(prev => prev.filter(s => s.id !== id));
+    }
+  };
+
+  return (
+    <div className="animate-fadeIn">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-semibold text-gray-900">Ученики</h2>
+        <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-lg shadow-blue-500/20 font-medium">
+          <Plus className="w-5 h-5" /> Добавить ученика
+        </button>
+      </div>
+
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Поиск по имени, фамилии или email..."
+            className="w-full pl-12 pr-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" />
+        </div>
+      </div>
+
+      <div className="bg-white/80 backdrop-blur rounded-2xl border border-white/50 shadow-lg overflow-hidden">
+        {filteredStudents.length === 0 ? (
+          <div className="text-center py-12">
+            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 font-medium">Нет учеников</p>
+            <p className="text-gray-400 text-sm mt-1">Добавьте первого ученика</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50/80 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-3 text-left font-semibold">№</th>
+                <th className="px-5 py-3 text-left font-semibold">Фамилия</th>
+                <th className="px-5 py-3 text-left font-semibold">Имя</th>
+                <th className="px-5 py-3 text-left font-semibold">Email</th>
+                <th className="px-5 py-3 text-center font-semibold">Оценок</th>
+                <th className="px-5 py-3 text-center font-semibold">Ср. балл</th>
+                <th className="px-5 py-3 text-center font-semibold">Действия</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredStudents.map((student, idx) => {
+                const stats = getStudentStats(student.id);
+                return (
+                  <tr key={student.id} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                    <td className="px-5 py-3 text-gray-500">{idx + 1}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">{student.lastName}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">{student.firstName}</td>
+                    <td className="px-5 py-3 text-gray-600">{student.email || '—'}</td>
+                    <td className="px-5 py-3 text-center">
+                      <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                        {stats.count}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      {stats.avg > 0 ? (
+                        <span className={`px-2 py-1 rounded-lg text-xs font-bold ${
+                          stats.avg >= 4.5 ? 'bg-green-100 text-green-700' :
+                          stats.avg >= 3.5 ? 'bg-blue-100 text-blue-700' :
+                          stats.avg >= 2.5 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {stats.avg.toFixed(2)}
+                        </span>
+                      ) : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => openEdit(student)} className="p-2 rounded-lg hover:bg-gray-100 transition-colors">
+                          <Edit2 className="w-4 h-4 text-gray-500" />
+                        </button>
+                        <button onClick={() => deleteStudent(student.id)} className="p-2 rounded-lg hover:bg-red-50 transition-colors">
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {showModal && createPortal(
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[200] p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-white/95 backdrop-blur-xl rounded-2xl border border-white/50 shadow-2xl w-full max-w-md p-7 space-y-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-gray-900">
+                {editingStudent ? 'Редактировать ученика' : 'Добавить ученика'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Фамилия</label>
+                <input type="text" value={formData.lastName} onChange={e => setFormData(p => ({ ...p, lastName: e.target.value }))}
+                  placeholder="Введите фамилию"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Имя</label>
+                <input type="text" value={formData.firstName} onChange={e => setFormData(p => ({ ...p, firstName: e.target.value }))}
+                  placeholder="Введите имя"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email (необязательно)</label>
+                <input type="email" value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
+                  placeholder="email@example.com"
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all" />
               </div>
             </div>
             <div className="flex gap-3 pt-2">
