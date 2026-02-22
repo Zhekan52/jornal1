@@ -778,7 +778,7 @@ const Journal: React.FC = () => {
     const last5Dates = (!grades || !Array.isArray(grades)) ? [] : (() => {
       const datesSet = new Set(
         grades
-          .filter(g => g.subject === selectedSubject && g.date !== lessonPageDate && !g.columnId)
+          .filter(g => g.subject === selectedSubject && g.date !== lessonPageDate && g.date < lessonPageDate && !g.columnId)
           .map(g => g.date)
       );
       return Array.from(datesSet).sort((a, b) => a.localeCompare(b)).slice(-5);
