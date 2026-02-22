@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import { useAuth, useData } from '../context';
 import { Schedule } from './Schedule';
 import { QuestionEditor } from './QuestionEditor';
+import { HomeworkEditor } from './HomeworkEditor';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import {
   BookOpen, Calendar, ClipboardList, Users, LogOut, Settings, Plus,
   Trash2, Edit2, Search, X, Save, ChevronDown, Eye, EyeOff,
   AlertTriangle, TrendingUp, TrendingDown, FileText,
-  BarChart3, Award, ArrowLeft, RefreshCw, ChevronRight, Tag, Info
+  BarChart3, Award, ArrowLeft, RefreshCw, ChevronRight, Tag
 } from 'lucide-react';
 import {
   SUBJECTS, MONTH_NAMES, MONTH_NAMES_GEN, ATTENDANCE_TYPES,
@@ -23,7 +24,6 @@ export const AdminView: React.FC = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
-  const [lessonPageParams, setLessonPageParams] = useState<{ subject: string; date: string; lessonNumber: number } | null>(null);
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Сводка', icon: <BarChart3 className="w-5 h-5" /> },
@@ -579,6 +579,8 @@ const Journal: React.FC = () => {
   const [popoverRect, setPopoverRect] = useState<DOMRect | null>(null);
   const [lessonPageDate, setLessonPageDate] = useState<string | null>(null);
   const [lessonPageLessonNum, setLessonPageLessonNum] = useState<number>(1);
+  const [homeworkEditorOpen, setHomeworkEditorOpen] = useState(false);
+  const [topicsHomeworkEditor, setTopicsHomeworkEditor] = useState<{ date: string; lessonNumber: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Check for journal open parameters from schedule
@@ -634,11 +636,6 @@ const Journal: React.FC = () => {
 
   const getColumnsForSlot = (date: string, lessonNumber: number) => {
     return journalColumns.filter(c => c.date === date && c.subject === selectedSubject && (c.lessonNumber === lessonNumber || (!c.lessonNumber && lessonNumber === 0)));
-  };
-
-  // Legacy: get columns for date (used in lesson page and popover)
-  const getColumnsForDate = (date: string) => {
-    return journalColumns.filter(c => c.date === date && c.subject === selectedSubject);
   };
 
   const addColumn = (date: string, lessonNumber?: number) => {
@@ -749,7 +746,18 @@ const Journal: React.FC = () => {
     const exact = diaryEntries.find(e => e.date === date && e.subject === selectedSubject && e.lessonNumber === lessonNum);
     if (exact) return exact;
     // Create a brand new entry for this specific lesson
-    const newEntry = { id: `de${Date.now()}${Math.random().toString(36).slice(2, 6)}`, date, lessonNumber: lessonNum, subject: selectedSubject, topic: '', homework: '' };
+    const newEntry = { 
+      id: `de${Date.now()}${Math.random().toString(36).slice(2, 6)}`, 
+      date, 
+      lessonNumber: lessonNum, 
+      subject: selectedSubject, 
+      topic: '', 
+      homework: '',
+      homeworkRich: false,
+      testId: undefined,
+      checkHomework: false,
+      testType: undefined
+    } as any;
     setDiaryEntries(prev => [...(prev || []), newEntry]);
     return newEntry;
   };
@@ -833,10 +841,16 @@ const Journal: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Домашнее задание</label>
-              <input type="text" value={entry?.homework || ''} onChange={e => {
-                const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
-                if (ent) setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: e.target.value } : de));
-              }} className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all placeholder-gray-400" placeholder="ДЗ..." />
+              <div
+                onClick={() => setHomeworkEditorOpen(true)}
+                className="w-full px-4 py-3 bg-white border-2 border-gray-200 rounded-xl text-gray-900 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all min-h-[48px] flex items-center"
+              >
+                {entry?.homework ? (
+                  <span className="text-gray-700 truncate">{entry?.homeworkRich ? '📎 Расширенное задание' : entry.homework}</span>
+                ) : (
+                  <span className="text-gray-400">Нажмите, чтобы добавить домашнее задание...</span>
+                )}
+              </div>
             </div>
           </div>
           
@@ -860,14 +874,14 @@ const Journal: React.FC = () => {
               <select value={entry?.testId || ''} onChange={e => {
                 const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
                 if (ent) {
-                  const prevTestId = ent.testId;
+                  const prevTestId = ent.testId || undefined;
                   setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, testId: e.target.value || undefined, testType: e.target.value ? 'real' as const : undefined } : de));
                   
                   // При назначении теста создаем колонку, при удалении - удаляем
                   if (e.target.value && !prevTestId) {
                     const hasCol = journalColumns.some(c => c.date === lessonPageDate && c.subject === selectedSubject && c.type === 'test' && (c.lessonNumber === lessonPageLessonNum || (!c.lessonNumber && lessonPageLessonNum === 0)));
                     if (!hasCol) {
-                      const newCol = { id: `jc${Date.now()}`, date: lessonPageDate, subject: selectedSubject, lessonNumber: lessonPageLessonNum, type: 'test' };
+                      const newCol = { id: `jc${Date.now()}`, date: lessonPageDate, subject: selectedSubject, lessonNumber: lessonPageLessonNum, type: 'test' as const };
                       setJournalColumns(prev => [...prev, newCol]);
                     }
                   } else if (!e.target.value && prevTestId) {
@@ -922,6 +936,32 @@ const Journal: React.FC = () => {
 
         {assignedTest && entry && (
           <TestResultsSection test={assignedTest} date={lessonPageDate} subject={selectedSubject} students={sortedStudents} testAttempts={testAttempts} testRetakes={testRetakes} setTestRetakes={setTestRetakes} setTestAttempts={setTestAttempts} grades={grades} setGrades={setGrades} journalColumns={journalColumns} lessonNumber={lessonPageLessonNum} testAssignments={testAssignments} setTestAssignments={setTestAssignments} />
+        )}
+
+        {/* Homework Editor Modal */}
+        {homeworkEditorOpen && createPortal(
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[300] p-4" onClick={() => setHomeworkEditorOpen(false)}>
+            <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden animate-scaleIn" onClick={e => e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Редактор домашнего задания</h3>
+              </div>
+              <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-6">
+                <HomeworkEditor
+                  value={entry?.homework || ''}
+                  isRich={entry?.homeworkRich || false}
+                  onChange={(newValue, isRich) => {
+                    const ent = getOrCreateDiaryEntry(lessonPageDate, lessonPageLessonNum);
+                    if (ent) {
+                      setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: newValue, homeworkRich: isRich } : de));
+                    }
+                  }}
+                  onCancel={() => setHomeworkEditorOpen(false)}
+                  onSave={() => setHomeworkEditorOpen(false)}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
 
         <div className="glass rounded-2xl shadow-soft overflow-hidden border border-white/50">
@@ -1346,9 +1386,6 @@ const Journal: React.FC = () => {
                   ? diaryEntries.find(e => e.date === sl.date && e.subject === selectedSubject && e.lessonNumber === sl.lessonNumber)
                   : null;
                 const lt = getLessonType(sl.date, sl.lessonNumber);
-                const testObj = entry?.testId && tests && Array.isArray(tests) 
-                  ? tests.find(t => t.id === entry.testId) 
-                  : null;
                 const slotsOnDate = allSlots.filter(s => s.date === sl.date);
 
                 return (
@@ -1379,12 +1416,16 @@ const Journal: React.FC = () => {
                       }} placeholder="Тема..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500" />
                     </td>
                     <td className="px-3 py-2">
-                      <input type="text" value={entry?.homework || ''} onChange={e => {
-                        const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
-                        if (ent) {
-                          setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: e.target.value } : de));
-                        }
-                      }} placeholder="ДЗ..." className="w-full px-2 py-1.5 text-xs border-2 border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500" />
+                      <div
+                        onClick={() => setTopicsHomeworkEditor({ date: sl.date, lessonNumber: sl.lessonNumber })}
+                        className="w-full px-2 py-1.5 border-2 border-gray-200 rounded-lg bg-white cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all min-h-[32px] flex items-center"
+                      >
+                        {entry?.homework ? (
+                          <span className="text-gray-700 text-xs truncate">{entry?.homeworkRich ? '📎 Расширенное' : entry.homework}</span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">+ Добавить</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-center">
                       <input type="checkbox" checked={entry?.checkHomework || false} onChange={e => {
@@ -1404,14 +1445,14 @@ const Journal: React.FC = () => {
                       <select value={entry?.testId || ''} onChange={e => {
                         const ent = getOrCreateDiaryEntry(sl.date, sl.lessonNumber);
                         if (ent) {
-                          const prevTestId = ent.testId;
+                          const prevTestId = ent.testId || undefined;
                           setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, testId: e.target.value || undefined, testType: e.target.value ? 'real' as const : undefined } : de));
                           
                           // При назначении теста создаем колонку, при удалении - удаляем
                           if (e.target.value && !prevTestId) {
                             const hasCol = journalColumns.some(c => c.date === sl.date && c.subject === selectedSubject && c.type === 'test' && (c.lessonNumber === sl.lessonNumber || !c.lessonNumber));
                             if (!hasCol) {
-                              const newCol = { id: `jc${Date.now()}`, date: sl.date, subject: selectedSubject, lessonNumber: sl.lessonNumber, type: 'test' };
+                              const newCol = { id: `jc${Date.now()}`, date: sl.date, subject: selectedSubject, lessonNumber: sl.lessonNumber, type: 'test' as const };
                               setJournalColumns(prev => [...prev, newCol]);
                             }
                           } else if (!e.target.value && prevTestId) {
@@ -1587,6 +1628,37 @@ const Journal: React.FC = () => {
           onClose={() => setAttendancePickerState(null)}
         />
       )}
+
+      {/* Topics Homework Editor Modal */}
+      {topicsHomeworkEditor && (() => {
+        const entry = diaryEntries?.find(e => e.date === topicsHomeworkEditor.date && e.subject === selectedSubject && e.lessonNumber === topicsHomeworkEditor.lessonNumber);
+        return createPortal(
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[300] p-4" onClick={() => setTopicsHomeworkEditor(null)}>
+            <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden animate-scaleIn" onClick={e => e.stopPropagation()}>
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Домашнее задание — {parseInt(topicsHomeworkEditor.date.split('-')[2])} {MONTH_NAMES_GEN[parseInt(topicsHomeworkEditor.date.split('-')[1]) - 1]?.slice(0, 3)}
+                </h3>
+              </div>
+              <div className="overflow-y-auto max-h-[calc(90vh-140px)] p-6">
+                <HomeworkEditor
+                  value={entry?.homework || ''}
+                  isRich={entry?.homeworkRich || false}
+                  onChange={(newValue, isRich) => {
+                    const ent = getOrCreateDiaryEntry(topicsHomeworkEditor.date, topicsHomeworkEditor.lessonNumber);
+                    if (ent) {
+                      setDiaryEntries(prev => prev.map(de => de.id === ent.id ? { ...de, homework: newValue, homeworkRich: isRich } : de));
+                    }
+                  }}
+                  onCancel={() => setTopicsHomeworkEditor(null)}
+                  onSave={() => setTopicsHomeworkEditor(null)}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 };

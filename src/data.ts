@@ -27,13 +27,27 @@ export interface Grade {
   columnId?: string;
 }
 
+export interface HomeworkFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  data: string; // base64 encoded file data
+}
+
+export interface HomeworkContent {
+  text: string; // HTML текст с форматированием
+  files?: HomeworkFile[];
+}
+
 export interface DiaryEntry {
   id: string;
   date: string;
   lessonNumber: number;
   subject: string;
   topic: string;
-  homework: string;
+  homework: string; // простой текст или JSON-строка с HomeworkContent
+  homeworkRich?: boolean; // флаг, что homework содержит JSON
   grade?: number;
   testId?: string;
   checkHomework?: boolean;

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAuth, useData } from '../context';
 import { Schedule } from './Schedule';
+import { HomeworkViewer } from './HomeworkEditor';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import {
@@ -865,7 +866,7 @@ const Diary: React.FC<DiaryProps> = ({
                         <td className="px-5 py-3 text-gray-600">{entry?.topic || '—'}</td>
                         <td className="px-5 py-3">
                           {entry?.homework && (
-                            <p className="text-gray-600 mb-2">{entry.homework}</p>
+                            <HomeworkViewer content={entry.homework} isRich={entry.homeworkRich || false} />
                           )}
                           {testObj && (
                             <div className="mt-2">
