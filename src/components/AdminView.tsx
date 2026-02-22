@@ -931,6 +931,15 @@ const Journal: React.FC = () => {
                 <tr className="bg-gray-50/80 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                   <th className="sticky left-0 z-10 bg-gray-50/80 px-4 py-3 text-left font-semibold w-48 min-w-[180px] border-r border-gray-200">Ученик</th>
                   
+                  {last5Dates.map(d => (
+                    <th key={d} className="px-2 py-3 text-center font-semibold min-w-[50px] border-r border-gray-200 text-gray-400">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[10px]">{MONTH_NAMES[parseInt(d.split('-')[1]) - 1]?.slice(0, 3)}</span>
+                        <span className="text-xs font-bold">{parseInt(d.split('-')[2])}</span>
+                      </div>
+                    </th>
+                  ))}
+
                   <th className="px-3 py-3 text-center font-semibold min-w-[60px] border-r border-gray-200 bg-primary-50 text-primary-700">
                     Осн.
                   </th>
@@ -940,15 +949,6 @@ const Journal: React.FC = () => {
                       ДЗ
                     </th>
                   )}
-
-                  {last5Dates.map(d => (
-                    <th key={d} className="px-2 py-3 text-center font-semibold min-w-[50px] border-r border-gray-200 text-gray-400">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[10px]">{MONTH_NAMES[parseInt(d.split('-')[1]) - 1]?.slice(0, 3)}</span>
-                        <span className="text-xs font-bold">{parseInt(d.split('-')[2])}</span>
-                      </div>
-                    </th>
-                  ))}
 
                   {cols.filter(c => c.type !== 'homework').map(c => (
                     <th key={c.id} className="px-3 py-3 text-center font-semibold min-w-[60px] border-r border-gray-200 bg-blue-50 text-blue-700">
@@ -978,6 +978,30 @@ const Journal: React.FC = () => {
                         </div>
                       </td>
 
+                      {last5Dates.map(d => {
+                        const g = grades.find(grade => grade.studentId === s.id && grade.date === d && grade.subject === selectedSubject && !grade.columnId);
+                        const att = attendance.find(a => a.studentId === s.id && a.date === d && a.subject === selectedSubject);
+                        const at = att ? ATTENDANCE_TYPES.find(at => at.value === att.type) : null;
+                        return (
+                          <td key={d} className="px-1 py-2 text-center border-r border-gray-100">
+                            {att ? (
+                              <span className={`inline-block w-7 h-7 leading-7 rounded-md text-[10px] font-bold ${at?.bgColor} ${at?.color}`}>
+                                {att.type}
+                              </span>
+                            ) : g ? (
+                              <span className={`inline-block w-7 h-7 leading-7 rounded-md text-[10px] font-bold ${
+                                g.value === 5 ? 'bg-green-50 text-green-600' :
+                                g.value === 4 ? 'bg-blue-50 text-blue-600' :
+                                g.value === 3 ? 'bg-yellow-50 text-yellow-600' :
+                                'bg-red-50 text-red-600'
+                              }`}>
+                                {g.value}
+                              </span>
+                            ) : <span className="text-gray-200">·</span>}
+                          </td>
+                        );
+                      })}
+
                       <td className="px-1 py-2 text-center border-r border-gray-100">
                         {(() => {
                           const att = attendance.find(a => a.studentId === s.id && a.date === lessonPageDate && a.subject === selectedSubject);
@@ -987,7 +1011,7 @@ const Journal: React.FC = () => {
                           // Блокируем кнопку если есть посещаемость (нельзя ставить оценку)
                           const isBlocked = showAttendance;
                           return (
-                            <button 
+                            <button
                               onClick={e => {
                                 if (!isBlocked) {
                                   setGradePickerState({ rect: e.currentTarget.getBoundingClientRect(), studentId: s.id, date: lessonPageDate, lessonNumber: lessonPageLessonNum });
@@ -1029,24 +1053,6 @@ const Journal: React.FC = () => {
                           })()}
                         </td>
                       )}
-
-                      {last5Dates.map(d => {
-                        const g = grades.find(grade => grade.studentId === s.id && grade.date === d && grade.subject === selectedSubject && !grade.columnId);
-                        return (
-                          <td key={d} className="px-1 py-2 text-center border-r border-gray-100">
-                            {g ? (
-                              <span className={`inline-block w-7 h-7 leading-7 rounded-md text-[10px] font-bold ${
-                                g.value === 5 ? 'bg-green-50 text-green-600' :
-                                g.value === 4 ? 'bg-blue-50 text-blue-600' :
-                                g.value === 3 ? 'bg-yellow-50 text-yellow-600' :
-                                'bg-red-50 text-red-600'
-                              }`}>
-                                {g.value}
-                              </span>
-                            ) : <span className="text-gray-200">·</span>}
-                          </td>
-                        );
-                      })}
 
                       {cols.filter(c => c.type !== 'homework').map(c => {
                         const g = getGrade(s.id, lessonPageDate, c.id, lessonPageLessonNum);
